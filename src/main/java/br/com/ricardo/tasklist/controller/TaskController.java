@@ -26,72 +26,78 @@ import br.com.ricardo.tasklist.dto.TaskDto;
 import br.com.ricardo.tasklist.enums.TaskStatus;
 import br.com.ricardo.tasklist.form.NewTaskForm;
 import br.com.ricardo.tasklist.model.Task;
+import br.com.ricardo.tasklist.model.TaskList;
 import br.com.ricardo.tasklist.repository.TaskListRepository;
 import br.com.ricardo.tasklist.repository.TaskRepository;
 
 @RestController
-@RequestMapping("/tasks")
+@RequestMapping("/task-lists")
 public class TaskController {
 
 	@Autowired
 	TaskRepository taskRepository;
-	
+
 	@Autowired
 	TaskListRepository taskListRepository;
 
-	@GetMapping
-	public Page<TaskDto> findAll(
+	@GetMapping("/{taskListId}/tasks")
+	public Page<TaskDto> findAllByTaskListId(@PathVariable Long taskListId,
 			@PageableDefault(sort = "description", direction = Direction.ASC, page = 0, size = 12) Pageable pageable) {
-		Page<Task> tasks = taskRepository.findAll(pageable);
+		Page<Task> tasks = taskRepository.findByTaskListId(taskListId, pageable);
 
 		return TaskDto.convert(tasks);
 	}
 
-	@GetMapping("/{id}")
-	public ResponseEntity<TaskDto> findById(@PathVariable Long id) {
-		Optional<Task> optional = taskRepository.findById(id);
+	@PostMapping("/{taskListId}/tasks")
+	@Transactional
+	public ResponseEntity<TaskDto> insert(@PathVariable(value = "taskListId") Long taskListId,
+			@RequestBody @Valid NewTaskForm form, UriComponentsBuilder uriBuilder) {
+		Optional<TaskList> optional = taskListRepository.findById(taskListId);
 
 		if (optional.isPresent()) {
-			return ResponseEntity.ok(new TaskDto(optional.get()));
-		}
-
-		return ResponseEntity.notFound().build();
-	}
-
-	@PostMapping
-	@Transactional
-	public ResponseEntity<TaskDto> insert(@RequestBody @Valid NewTaskForm form,
-			UriComponentsBuilder uriBuilder) {
-		Task task = form.convert(taskListRepository);
-
-		taskRepository.save(task);
-
-		URI uri = uriBuilder.path("/tasks/{id}").buildAndExpand(task.getId()).toUri();
-		return ResponseEntity.created(uri).body(new TaskDto(task));
-	}
-
-	@PutMapping("/{id}")
-	@Transactional
-	public ResponseEntity<TaskDto> markAsDone(@PathVariable Long id) {
-		Optional<Task> optional = taskRepository.findById(id);
-
-		if (optional.isPresent()) {
-			Task task = optional.get();
-			task.setStatus(TaskStatus.DONE);
+			TaskList taskList = optional.get();
+			Task task = new Task(null, form.getDescription(), TaskStatus.TO_DO, taskList);
 			taskRepository.save(task);
-			return ResponseEntity.ok(new TaskDto(task));
+
+			URI uri = uriBuilder.path("/task-lists/{taskListId}").buildAndExpand(task.getId()).toUri();
+			return ResponseEntity.created(uri).body(new TaskDto(task));
 		}
 
 		return ResponseEntity.notFound().build();
 	}
-	
-	@DeleteMapping("/{id}")
+
+	@PutMapping("/{taskListId}/tasks/{taskId}")
 	@Transactional
-	public ResponseEntity<?> delete(@PathVariable Long id) {
-		Optional<Task> optional = taskRepository.findById(id);
+	public ResponseEntity<TaskDto> markAsDone(@PathVariable(value = "taskListId") Long taskListId,
+			@PathVariable(value = "taskId") Long taskId) {
+		Optional<TaskList> optionalTaskList = taskListRepository.findById(taskListId);
+
+		if (optionalTaskList.isPresent()) {
+			TaskList taskList = optionalTaskList.get();
+
+			Optional<Task> optionalTask = taskRepository.findById(taskId);
+
+			if (optionalTask.isPresent()) {
+				Task task = optionalTask.get();
+				task.setStatus(TaskStatus.DONE);
+				taskRepository.save(task);
+				return ResponseEntity.ok(new TaskDto(task));
+			}
+
+			return ResponseEntity.notFound().build();
+		}
+
+		return ResponseEntity.notFound().build();
+	}
+
+	@DeleteMapping("/{taskListId}/tasks/{taskId}")
+	@Transactional
+	public ResponseEntity<?> delete(@PathVariable(value = "taskListId") Long taskListId,
+			@PathVariable(value = "taskId") Long taskId) {
+		Optional<Task> optional = taskRepository.findByIdAndTaskListId(taskId, taskListId);
 
 		if (optional.isPresent()) {
-			taskRepository.deleteById(id);
+			taskRepository.delete(optional.get());
 			return ResponseEntity.ok().build();
 		}
 
